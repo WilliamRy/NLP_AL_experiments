@@ -91,7 +91,7 @@ class CRF(nn.Module):
             cur_values: bat_size * from_target * to_target
             """
             cur_values = cur_values + partition.contiguous().view(batch_size, tag_size, 1).expand(batch_size, tag_size, tag_size)
-            cur_partition = log_sum_exp(cur_values, tag_size)
+            cur_partition = log_sum_exp(cur_values, tag_size) # Why log_sum_exp function minus the max?
 
             mask_idx = mask[idx, :].view(batch_size, 1).expand(batch_size, tag_size)
 
@@ -193,6 +193,7 @@ class CRF(nn.Module):
         decode_idx[-1] = pointer.data
         for idx in range(len(back_points)-2, -1, -1):
             pointer = torch.gather(back_points[idx], 1, pointer.contiguous().view(batch_size, 1))
+            pointer = pointer.view(batch_size)
             decode_idx[idx] = pointer.data
         path_score = None
         decode_idx = decode_idx.transpose(1, 0)

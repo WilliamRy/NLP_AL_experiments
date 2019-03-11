@@ -11,7 +11,7 @@ from DataUtils.Alphabet import CreateAlphabet
 from ner_model.utils import Best_Result, set_lrate, torch_max, save_model_all, save_best_model
 from ner_model.eval import Eval, EvalPRF
 from DataUtils.preprocess import Create_Iterator
-from ner_model.nn.Sequence_Label import Sequence_Label
+from ner_model.nets.Sequence_Label import Sequence_Label
 
 
 
@@ -50,10 +50,29 @@ def load_test_model(model, config):
     model.load_state_dict(torch.load(test_model_path))
     return model
 
+def add_params(config, alphabet):
+    config.embed_num = alphabet.word_alphabet.vocab_size
+    config.char_embed_num = alphabet.char_alphabet.vocab_size
+    config.class_num = alphabet.label_alphabet.vocab_size
+    config.paddingId = alphabet.word_paddingId
+    config.char_paddingId = alphabet.char_paddingId
+    config.label_paddingId = alphabet.label_paddingId
+    config.create_alphabet = alphabet
+    print("embed_num : {}, char_embed_num: {}, class_num : {}".format(config.embed_num, config.char_embed_num,
+                                                                      config.class_num))
+    print("PaddingID {}".format(config.paddingId))
+    print("char PaddingID {}".format(config.char_paddingId))
+
+
+
 def get_al_model(config, vocab, seed):
     # random seed
     torch.manual_seed(seed)
     random.seed(seed)
+
+    config.pretrained_weight = None
+    add_params(config, vocab)
+
     model = load_model(config)
     my_model = AL_api(model=model, config=config)
     my_model.set_vocab(vocab=vocab)
@@ -94,10 +113,12 @@ class AL_api():
             loss_function = self.model.crf_layer.neg_log_likelihood_loss
             return loss_function
         elif learning_algorithm == "SGD":
-            loss_function = nn.CrossEntropyLoss(ignore_index=label_paddingId, size_average=False)
+            #loss_function = nn.CrossEntropyLoss(ignore_index=label_paddingId, size_average=False)
+            loss_function = nn.CrossEntropyLoss(ignore_index=label_paddingId, reduction='sum')
             return loss_function
         else:
-            loss_function = nn.CrossEntropyLoss(ignore_index=label_paddingId, size_average=True)
+            #loss_function = nn.CrossEntropyLoss(ignore_index=label_paddingId, size_average=True)
+            loss_function = nn.CrossEntropyLoss(ignore_index=label_paddingId, reduction='mean')
             return loss_function
 
     def _clip_model_norm(self, clip_max_norm_use, clip_max_norm):
@@ -201,17 +222,18 @@ class AL_api():
         if config.save_model and config.save_all_model:
             save_model_all(model, config.save_dir, config.model_name, epoch)
         elif config.save_model and config.save_best_model:
-            save_best_model(model, config.save_best_model_path, config.model_name, self.best_score)
+            save_best_model(model, config.save_best_model_dir, config.model_name, self.best_score)
         else:
             print()
 
 
 
-    def fit(self, X, y = None):
+    def fit(self, X, y = None, vali = None, min_epoch = 1):
         print("Training Start......")
         self.best_score = Best_Result()
         self.train_eval, self.dev_eval, self.test_eval = Eval(), Eval(), Eval()
         self.train_iter_len = len(X)
+        self.current_epoch = 0
 
 
         epochs = self.config.epochs
@@ -220,11 +242,13 @@ class AL_api():
         clip_max_norm_use = self.config.clip_max_norm_use
         clip_max_norm = self.config.clip_max_norm
         new_lr = self.config.learning_rate
+        batch_count = 0
         for epoch in range(1, epochs + 1):
+            self.current_epoch = epoch
             print("\n## The {} Epoch, All {} Epochs ! ##".format(epoch, epochs))
             # new_lr = self._dynamic_lr(config=self.config, epoch=epoch, new_lr=new_lr)
             self.optimizer = self._decay_learning_rate(epoch=epoch - 1, init_lr=self.config.learning_rate)
-            print("now lr is {}".format(self.optimizer.param_groups[0].get("lr")), end="")
+            print("now lr is {}".format(self.optimizer.param_groups[0].get("lr")))
             start_time = time.time()
             #random.shuffle(self.train_iter)
             self.model.train() #set the model in train mode
@@ -232,34 +256,38 @@ class AL_api():
             backward_count = 0
             sample_count = 0
             #self.optimizer.zero_grad()
-            for batch_count, batch_features in enumerate(self.train_iter):
+            for batch_features in self.train_iter:
                 backward_count += 1
+                batch_count += 1
                 sample_count += self.config.batch_size
                 self.optimizer.zero_grad()
                 word, char, mask, sentence_length, tags = self._get_model_args(batch_features)
                 logit = self.model(word, char, sentence_length, train=True)
                 loss = self._calculate_loss(logit, mask, tags)
-                print(loss)
                 loss.backward()
                 self._clip_model_norm(clip_max_norm_use, clip_max_norm)
                 # self._optimizer_batch_step(config=self.config, backward_count=backward_count)
                 self.optimizer.step()
                 steps += 1
-                if (steps - 1) % self.config.log_interval == 0:
+
+                if sample_count > self.train_iter_len:  # end loop when finish a epoch
                     self.getAcc(self.train_eval, batch_features, logit, self.config)
-                    sys.stdout.write(
-                        "\nbatch_count = [{}] , loss is {:.6f}, [TAG-ACC is {:.6f}%]".format(batch_count + 1, loss.data.item(), self.train_eval.acc()))
-                if sample_count > self.train_iter_len:
+                    tmp = (batch_count + 1, loss.data.item(), self.train_eval.acc())
+                    print("\nbatch_count = [{}] , loss is {:.6f}, [TAG-ACC is {:.6f}%]".format(*tmp))
+                    sample_count = 0
                     break
             end_time = time.time()
-            print("\nTrain Time {:.3f}".format(end_time - start_time), end="")
-            if epoch > 0:
-                f_score = self.score(X[:128])
-                self._model2file(model=self.model, config=self.config, epoch=epoch)
-                # self._early_stop(epoch=epoch)
-                if f_score>1-1e-5:
-                    print('early_stop!')
-                    break
+            print("\nTrain Time {:.3f}".format(end_time - start_time), end="\n")
+            if vali is None:
+                if epoch > min_epoch:
+                    self.score(X=X)
+                    self._early_stop(epoch=epoch)
+            else:
+                if epoch > min_epoch:
+                    self.score(X=vali)
+                    self._model2file(model=self.model, config=self.config, epoch=epoch)
+                    self._early_stop(epoch=epoch)
+
 
 
     def score(self, X, y=None):
@@ -285,34 +313,26 @@ class AL_api():
         for inst in X:
             gold_labels.append(inst.labels)
         for p_label, g_label in zip(predict_labels, gold_labels):
-            #print(p_label)
-            #print('-'*80)
-            #print(g_label)
-            #print('='*80)
             eval_PRF.evalPRF(predict_labels=p_label, gold_labels=g_label, eval=eval_acc)
         if eval_acc.gold_num == 0:
             eval_acc.gold_num = 1
         p, r, f = eval_acc.getFscore()
-        # p, r, f = entity_evalPRF_exact(gold_labels=gold_labels, predict_labels=predict_labels)
-        # p, r, f = entity_evalPRF_propor(gold_labels=gold_labels, predict_labels=predict_labels)
-        # p, r, f = entity_evalPRF_binary(gold_labels=gold_labels, predict_labels=predict_labels)
-        test_flag = "Test"
 
-        best_score = Best_Result()
+        best_score = self.best_score
 
-        if True:
+        if f > best_score.best_dev_score:
             best_score.p = p
             best_score.r = r
             best_score.f = f
-        fmt = (test_flag, p, r, f, 0.0000)
+            best_score.best_dev_score = f
+            best_score.best_epoch = self.current_epoch
+        fmt = (p, r, f, 0.0000)
         print(
-            "{} eval: precision = {:.6f}%  recall = {:.6f}% , f-score = {:.6f}%,  [TAG-ACC = {:.6f}%]".format(*fmt))
+            "precision = {:.6f}%  recall = {:.6f}% , f-score = {:.6f}%,  [TAG-ACC = {:.6f}%]".format(*fmt))
 
-        if True:
-            print("The Current Best Dev F-score: {:.6f}, Locate on {} Epoch.".format(best_score.best_dev_score,
+        print("The Current Best Dev F-score: {:.6f}, Locate on {} Epoch.".format(best_score.best_dev_score,
                                                                                      best_score.best_epoch))
-            print("The Current Best Test Result: precision = {:.6f}%  recall = {:.6f}% , f-score = {:.6f}%".format(
-                best_score.p, best_score.r, best_score.f))
+        print("precision = {:.6f}%  recall = {:.6f}% , f-score = {:.6f}%".format(best_score.p, best_score.r, best_score.f))
         return f/100.0
 
 

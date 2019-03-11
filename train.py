@@ -57,7 +57,7 @@ def main():
     config.mulu = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     config.save_dir = os.path.join(config.save_direction, config.mulu)
 
-    is_testing = True
+    is_testing = False
     if is_testing == True:
         config.max_count = 100
 
@@ -72,13 +72,8 @@ def main():
     else:
         train, dev, test, vocab = preprocessing(config=config)
 
-    print('debug2.0')
-
     model = get_al_model(config=config, vocab = vocab, seed=1)
-    model.fit(train)
-
-
-
+    model.fit(train, vali=dev)
 
 if __name__ == "__main__":
     os.environ['CUDA_VISIBLE_DEVICES'] = '1'

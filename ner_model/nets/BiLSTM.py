@@ -10,16 +10,11 @@
 """
 
 
-
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import random
 from DataUtils.Common import *
-from models.initialize import *
-from models.modelHelp import prepare_pack_padded_sequence
+from ner_model.nets.initialize import *
+from ner_model.nets.modelHelp import prepare_pack_padded_sequence
 torch.manual_seed(seed_num)
 random.seed(seed_num)
 

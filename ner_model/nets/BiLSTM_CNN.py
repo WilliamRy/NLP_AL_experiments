@@ -9,15 +9,11 @@
     FUNCTION : None
 """
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import random
-from models.initialize import *
+from ner_model.nets.initialize import *
 from DataUtils.Common import *
 from torch.nn import init
-from models.modelHelp import prepare_pack_padded_sequence
+from ner_model.nets.modelHelp import prepare_pack_padded_sequence
 torch.manual_seed(seed_num)
 random.seed(seed_num)
 
@@ -104,6 +100,6 @@ class BiLSTM_CNN(nn.Module):
         x = self.dropout_embed(x)
         x, _ = self.bilstm(x)
         x = self.dropout(x)
-        x = F.tanh(x)
+        x = torch.tanh(x)
         logit = self.linear(x)
         return logit

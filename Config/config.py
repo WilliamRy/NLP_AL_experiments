@@ -236,12 +236,8 @@ class Configurable(myconf):
 
     # Optimizer
     @property
-    def adam(self):
-        return self._config.getboolean("Optimizer", "adam")
-
-    @property
-    def sgd(self):
-        return self._config.getboolean("Optimizer", "sgd")
+    def learning_algorithm(self):
+        return self._config.get("Optimizer", "learning_algorithm")
 
     @property
     def learning_rate(self):

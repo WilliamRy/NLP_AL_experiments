@@ -14,10 +14,10 @@ import torch.nn as nn
 import random
 import numpy as np
 import time
-from models.BiLSTM import BiLSTM
-from models.BiLSTM_CNN import BiLSTM_CNN
-from models.CRF import CRF
-from DataUtils.Common import *
+from ner_model.nets.BiLSTM import BiLSTM
+from ner_model.nets.BiLSTM_CNN import BiLSTM_CNN
+from ner_model.nets.CRF import CRF
+from DataUtils.Common import seed_num
 torch.manual_seed(seed_num)
 random.seed(seed_num)
 
